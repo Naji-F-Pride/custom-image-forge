@@ -1,0 +1,115 @@
+#!/bin/bash
+
+usage() {
+        cat >&2 <<EOF
+usage: packet-save2image [OPTION]
+        -v      ubuntu version
+        -a      architecture
+        -o      output directory
+        -V      make verbose
+        -h      display help
+EOF
+}
+
+
+msg() { :; }
+
+set -u -e
+
+# Get cli options
+while getopts "v:a:o:Vh" OPTION; do
+        case $OPTION in
+        v) version=${OPTARG} ;;
+        a) arch=${OPTARG} ;;
+        o) outdir=${OPTARG} ;;
+        V) v=true && msg() { echo $@ >&2; } ;;
+        h) usage && exit 0 ;;
+        *) usage && exit 1 ;;
+        esac
+done
+
+case $arch in
+aarch64) arch=arm64 ;;
+x86_64) arch=amd64 ;;
+esac
+
+case "$version" in
+'14.04') fullversion=$version.5 ;;
+'16.04') fullversion=$version.4 ;;
+'17.10') fullversion=$version ;;
+'18.04') fullversion=$version ;;
+'19.04') fullversion=$version ;;
+*) echo "$version is not supported, sorry" && exit 1 ;;
+esac
+
+for dep in tar jq mktemp pv docker; do
+        if ! type $dep &>/dev/null; then
+                echo "Error: $dep not found. Please install it first."
+                exit 1
+        fi
+done
+
+path="http://cdimage.ubuntu.com/ubuntu-base/releases/$version/release"
+file=ubuntu-base-${fullversion}-base-${arch}.tar.gz
+
+#msg "Fetching keys"
+#gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
+#	843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
+#	C5986B4F1257FFA86632CBA746181433FBB75451
+
+cd "$outdir"
+wget -qN "$path/$file" "$path/SHA256SUMS" "$path/SHA256SUMS.gpg"
+
+# verify signature and also keys used to sign
+msg "Verifying keys."
+statusf=$(mktemp -t get-ubuntu-image-keys-XXXXXX)
+gpg --quiet --verify --status-fd=3 SHA256SUMS.gpg SHA256SUMS 3>"$statusf" 2>/dev/null
+grep -q 'VALIDSIG 843938DF228D22F7B3742BC0D94AA3F0EFE21092' "$statusf"
+grep -q 'VALIDSIG C5986B4F1257FFA86632CBA746181433FBB75451' "$statusf"
+rm -f "$statusf"
+
+msg "Creating rootfs.tar.gz symlink."
+grep "$file" SHA256SUMS | sha256sum --status -c
+ln -s "$file" rootfs.tar.gz
+
+msg "Building docker image."
+docker build -t custom-ubuntu-$version .
+
+msg "Saving docker image."
+docker save custom-ubuntu-${version} > custom-ubuntu-${version}.tar
+
+image=$(pwd)/custom-ubuntu-${version}.tar
+
+tmp=$(mktemp -d packet-image-XXXXXXX)
+# shellcheck disable=SC2064
+msg "Temp directory is: $tmp"
+
+packdir=$(pwd)/${tmp}/consolidated
+mkdir "$packdir"
+log=$(pwd)/${tmp}/log
+mkdir $log
+
+msg "Extracting image"
+tar --warning=no-timestamp -xf $image -C $tmp
+for layer in $(jq -r '.[0].Layers[]' ${tmp}/manifest.json); do
+        msg "Extracting layer $layer"
+        tar --warning=no-timestamp -xf "${tmp}/$layer" -C "$packdir"
+        find "$packdir" -name .wh.\* | while read -r path; do
+                rm -rf "$path" "${path/.wh./}"
+        done
+done
+
+zip() {
+        if which pigz &>/dev/null; then
+                pigz $1
+        else
+                gzip $1
+        fi
+}
+
+echo $(pwd)
+echo $(ls)
+
+msg "Creating consolidated image archive..."
+tar cf image.tar -C ${packdir} .
+zip image.tar
