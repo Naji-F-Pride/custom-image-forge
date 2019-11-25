@@ -1,0 +1,7 @@
+custom-ubuntu-16.04.tar
+rootfs.tar.gz
+SHA256SUMS
+SHA256SUMS.gpg
+ubuntu-base-16.04.4-base-amd64.tar.gz
+image-creator
+packet-image-*/
