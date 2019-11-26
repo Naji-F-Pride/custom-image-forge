@@ -2,44 +2,61 @@
 
 usage() {
         cat >&2 <<EOF
-usage: packet-save2image [OPTION]
+usage: packet-save2image -v 16.04 -a x86_64
         -v      ubuntu version
-        -a      architecture
+        -a      architecture 
         -o      output directory
-        -V      make verbose
+        -q	quiet
         -h      display help
 EOF
 }
 
+supp_arch() {
+	echo -e "aarch64\nx86_64'"
+}
 
-msg() { :; }
+supp_ver() {
+	echo -e "14.04\n16.04\n17.10\n18.04"
+}
+
+msg() { echo $@ >&2; }
 
 set -u -e
 
+arch=''
+version=''
+outdir=.
+
 # Get cli options
-while getopts "v:a:o:Vh" OPTION; do
+if ! [[ "$@" =~ "-v" ]] || ! [[ "$@" =~ "-a" ]]; then
+	echo "Version and architecture options must be set."
+	usage && exit 1
+fi
+
+while getopts "v:a:o:qh" OPTION; do
         case $OPTION in
         v) version=${OPTARG} ;;
         a) arch=${OPTARG} ;;
         o) outdir=${OPTARG} ;;
-        V) v=true && msg() { echo $@ >&2; } ;;
+        q) msg() { :; } ;;
         h) usage && exit 0 ;;
-        *) usage && exit 1 ;;
+        \?) usage && exit 1 ;;
         esac
 done
 
 case $arch in
-aarch64) arch=arm64 ;;
-x86_64) arch=amd64 ;;
+'aarch64') arch=arm64 ;;
+'x86_64') arch=amd64 ;;
+*) echo -e "Architecture not supported.\nSupported Architectures are:\n$(supp_arch)" && exit 1 ;;
 esac
 
-case "$version" in
+case $version in
 '14.04') fullversion=$version.5 ;;
 '16.04') fullversion=$version.4 ;;
 '17.10') fullversion=$version ;;
 '18.04') fullversion=$version ;;
 '19.04') fullversion=$version ;;
-*) echo "$version is not supported, sorry" && exit 1 ;;
+*) echo -e "$version not supported.\nsupported versions are:\n$(supp_ver)" && exit 1 ;;
 esac
 
 for dep in tar jq mktemp pv docker; do
@@ -49,15 +66,16 @@ for dep in tar jq mktemp pv docker; do
         fi
 done
 
+cd "$outdir"
+
 path="http://cdimage.ubuntu.com/ubuntu-base/releases/$version/release"
 file=ubuntu-base-${fullversion}-base-${arch}.tar.gz
 
-#msg "Fetching keys"
-#gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
-#	843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
-#	C5986B4F1257FFA86632CBA746181433FBB75451
+msg "Fetching keys"
+gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
+	843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
+	C5986B4F1257FFA86632CBA746181433FBB75451
 
-cd "$outdir"
 wget -qN "$path/$file" "$path/SHA256SUMS" "$path/SHA256SUMS.gpg"
 
 # verify signature and also keys used to sign
@@ -72,22 +90,20 @@ msg "Creating rootfs.tar.gz symlink."
 grep "$file" SHA256SUMS | sha256sum --status -c
 ln -s "$file" rootfs.tar.gz
 
-msg "Building docker image."
-docker build -t custom-ubuntu-$version .
+#msg "Building docker image."
+#docker build -t custom-ubuntu-$version .
 
-msg "Saving docker image."
-docker save custom-ubuntu-${version} > custom-ubuntu-${version}.tar
+#msg "Saving docker image."
+#docker save custom-ubuntu-${version} > custom-ubuntu-${version}.tar
 
-image=$(pwd)/custom-ubuntu-${version}.tar
+image=custom-ubuntu-${version}.tar
 
 tmp=$(mktemp -d packet-image-XXXXXXX)
 # shellcheck disable=SC2064
 msg "Temp directory is: $tmp"
 
-packdir=$(pwd)/${tmp}/consolidated
-mkdir "$packdir"
-log=$(pwd)/${tmp}/log
-mkdir $log
+packdir=${tmp}/consolidated
+mkdir $packdir
 
 msg "Extracting image"
 tar --warning=no-timestamp -xf $image -C $tmp
@@ -101,15 +117,11 @@ done
 
 zip() {
         if which pigz &>/dev/null; then
-                pigz $1
+                pigz
         else
-                gzip $1
+                gzip
         fi
 }
 
-echo $(pwd)
-echo $(ls)
-
 msg "Creating consolidated image archive..."
-tar cf image.tar -C ${packdir} .
-zip image.tar
+tar c -C ${packdir} . | pv | zip > image.tar.gz
