@@ -4,22 +4,109 @@ usage() {
         cat >&2 <<EOF
 usage: packet-save2image -v 16.04 -a x86_64
         -v      ubuntu version
-        -a      architecture 
+        -a      architecture
         -o      output directory
-        -q	quiet
+        -V	verbose
         -h      display help
 EOF
 }
 
-supp_arch() {
+supt_arch() {
 	echo -e "aarch64\nx86_64'"
 }
 
-supp_ver() {
+supt_ver() {
 	echo -e "14.04\n16.04\n17.10\n18.04"
 }
 
-msg() { echo $@ >&2; }
+msg() { :; }
+
+zip() {
+        if which pigz &>/dev/null; then
+                pigz
+        else
+                gzip
+        fi
+}
+
+#Fetches the ubuntu base image. Takes the ubuntu full version and architecture as arguements.
+get_ubuntu_base() {
+	cd "$outdir"
+
+	path="http://cdimage.ubuntu.com/ubuntu-base/releases/$1/release"
+	file=ubuntu-base-$1-base-$2.tar.gz
+
+	msg "Fetching keys"
+	gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
+		843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
+		C5986B4F1257FFA86632CBA746181433FBB75451
+
+	wget -qN "$path/$file" "$path/SHA256SUMS" "$path/SHA256SUMS.gpg"
+
+	# verify signature and also keys used to sign
+	msg "Verifying keys."
+	statusf=$(mktemp -t get-ubuntu-image-keys-XXXXXX)
+	gpg --quiet --verify --status-fd=3 SHA256SUMS.gpg SHA256SUMS 3>"$statusf" 2>/dev/null
+	grep -q 'VALIDSIG 843938DF228D22F7B3742BC0D94AA3F0EFE21092' "$statusf"
+	grep -q 'VALIDSIG C5986B4F1257FFA86632CBA746181433FBB75451' "$statusf"
+	rm -f "$statusf"
+
+	msg "Creating rootfs.tar.gz symlink."
+	grep "$file" SHA256SUMS | sha256sum --status -c
+	ln -s "$file" rootfs.tar.gz
+}
+
+get_bins() {
+	msg "downloading binary files"
+	wget -q https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/initrd.tar.gz \
+	https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/kernel.tar.gz \
+	https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/modules.tar.gz
+	if [[ -f initrd.tar.gz && -f kernel.tar.gz && -f modules.tar.gz ]]; then
+		msg "All files downloaded successfully."
+	else
+		msg "Files missing." && exit 1
+	fi
+}
+
+#Builds a custom ubuntu image with Docker. Takes the ubuntu version and ourput directory as arguments
+image_builder() {
+        msg "Building docker image."
+        docker build -t custom-ubuntu-$1 $2 > dockerlog 2>&1
+
+        msg "Saving docker image."
+        docker save custom-ubuntu-$1 > custom-ubuntu-$1.tar
+	if [[ -f custom-ubuntu-$1.tar ]]; then
+		msg "Image saved successfully"
+	else
+		msg "Unable to save docker image." && exit 1
+	fi
+}
+
+#Saves the docker image as a tar.gz zipped archive. Takes the ubuntu versiona as argument.
+save_image() {
+	image=custom-ubuntu-$1.tar
+
+	tmp=$(mktemp -d packet-image-XXXXXXX)
+	# shellcheck disable=SC2064
+	msg "Temp directory is: $tmp"
+
+	packdir=${tmp}/consolidated
+	mkdir $packdir
+	msg "packet directory is $packdir"
+
+	msg "Extracting image"
+	tar --warning=no-timestamp -xf $image -C $tmp
+	for layer in $(jq -r '.[0].Layers[]' ${tmp}/manifest.json); do
+        	msg "Extracting layer $layer"
+        	tar --warning=no-timestamp -xf "${tmp}/$layer" -C "$packdir"
+        	find "$packdir" -name .wh.\* | while read -r path; do
+                	rm -rf "$path" "${path/.wh./}"
+        	done
+	done
+
+	msg "Creating consolidated image archive..."
+	tar c -C ${packdir} . | pv | zip > image.tar.gz
+}
 
 set -u -e
 
@@ -33,12 +120,12 @@ if ! [[ "$@" =~ "-v" ]] || ! [[ "$@" =~ "-a" ]]; then
 	usage && exit 1
 fi
 
-while getopts "v:a:o:qh" OPTION; do
+while getopts "v:a:o:Vh" OPTION; do
         case $OPTION in
         v) version=${OPTARG} ;;
         a) arch=${OPTARG} ;;
         o) outdir=${OPTARG} ;;
-        q) msg() { :; } ;;
+        V) msg() { echo $@ >&2; } ;;
         h) usage && exit 0 ;;
         \?) usage && exit 1 ;;
         esac
@@ -47,7 +134,7 @@ done
 case $arch in
 'aarch64') arch=arm64 ;;
 'x86_64') arch=amd64 ;;
-*) echo -e "Architecture not supported.\nSupported Architectures are:\n$(supp_arch)" && exit 1 ;;
+*) echo -e "Architecture not supported.\nSupported Architectures are:\n$(supt_arch)" && exit 1 ;;
 esac
 
 case $version in
@@ -56,7 +143,7 @@ case $version in
 '17.10') fullversion=$version ;;
 '18.04') fullversion=$version ;;
 '19.04') fullversion=$version ;;
-*) echo -e "$version not supported.\nsupported versions are:\n$(supp_ver)" && exit 1 ;;
+*) echo -e "$version not supported.\nsupported versions are:\n$(supt_ver)" && exit 1 ;;
 esac
 
 for dep in tar jq mktemp pv docker; do
@@ -66,62 +153,15 @@ for dep in tar jq mktemp pv docker; do
         fi
 done
 
-cd "$outdir"
+get_ubuntu_base $fullversion $arch
 
-path="http://cdimage.ubuntu.com/ubuntu-base/releases/$version/release"
-file=ubuntu-base-${fullversion}-base-${arch}.tar.gz
+msg "Fetching binary files."
+get_bins
 
-msg "Fetching keys"
-gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
-	843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
-	C5986B4F1257FFA86632CBA746181433FBB75451
+image_builder $version $outdir
 
-wget -qN "$path/$file" "$path/SHA256SUMS" "$path/SHA256SUMS.gpg"
+save_image $version
 
-# verify signature and also keys used to sign
-msg "Verifying keys."
-statusf=$(mktemp -t get-ubuntu-image-keys-XXXXXX)
-gpg --quiet --verify --status-fd=3 SHA256SUMS.gpg SHA256SUMS 3>"$statusf" 2>/dev/null
-grep -q 'VALIDSIG 843938DF228D22F7B3742BC0D94AA3F0EFE21092' "$statusf"
-grep -q 'VALIDSIG C5986B4F1257FFA86632CBA746181433FBB75451' "$statusf"
-rm -f "$statusf"
+trap "rm -rf $tmp SHA256SUMS* rootfs.tar.gz ubuntu-base-$fullversion-base-$arch.tar.gz custom-ubuntu-$version.tar" EXIT
 
-msg "Creating rootfs.tar.gz symlink."
-grep "$file" SHA256SUMS | sha256sum --status -c
-ln -s "$file" rootfs.tar.gz
-
-#msg "Building docker image."
-#docker build -t custom-ubuntu-$version .
-
-#msg "Saving docker image."
-#docker save custom-ubuntu-${version} > custom-ubuntu-${version}.tar
-
-image=custom-ubuntu-${version}.tar
-
-tmp=$(mktemp -d packet-image-XXXXXXX)
-# shellcheck disable=SC2064
-msg "Temp directory is: $tmp"
-
-packdir=${tmp}/consolidated
-mkdir $packdir
-
-msg "Extracting image"
-tar --warning=no-timestamp -xf $image -C $tmp
-for layer in $(jq -r '.[0].Layers[]' ${tmp}/manifest.json); do
-        msg "Extracting layer $layer"
-        tar --warning=no-timestamp -xf "${tmp}/$layer" -C "$packdir"
-        find "$packdir" -name .wh.\* | while read -r path; do
-                rm -rf "$path" "${path/.wh./}"
-        done
-done
-
-zip() {
-        if which pigz &>/dev/null; then
-                pigz
-        else
-                gzip
-        fi
-}
-
-msg "Creating consolidated image archive..."
-tar c -C ${packdir} . | pv | zip > image.tar.gz
+echo -e "image-creator\ndockerlog" > .gitignore
