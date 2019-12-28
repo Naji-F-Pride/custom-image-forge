@@ -84,8 +84,8 @@ RUN apt-get -q update && \
 	efibootmgr \
 	grub-efi \
 	linux-firmware \
-	linux-image-4.4.0-134-generic \
-	linux-image-extra-4.4.0-134-generic
+	linux-image-5.3.0-24-generic \
+	linux-modules-extra-5.3.0-24-generic
 
 # Configure locales
 RUN locale-gen en_US.UTF-8 && \
@@ -103,4 +103,4 @@ RUN rm -f /etc/apt/sources.list.d/proposed.list
 
 # vim: set tabstop=4 shiftwidth=4:
 
-RUN echo "hello world" > /root/hello
+RUN echo "hello from ubuntu 18.04" > /root/hello
