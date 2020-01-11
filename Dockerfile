@@ -84,8 +84,8 @@ RUN apt-get -q update && \
 	efibootmgr \
 	grub-efi \
 	linux-firmware \
-	linux-image-5.3.0-24-generic \
-	linux-modules-extra-5.3.0-24-generic
+	linux-image-4.15.0-74-generic \
+	linux-modules-extra-4.15.0-74-generic
 
 # Configure locales
 RUN locale-gen en_US.UTF-8 && \
