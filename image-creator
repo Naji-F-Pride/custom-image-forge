@@ -57,12 +57,15 @@ get_ubuntu_base() {
 }
 
 get_bins() {
-	msg "downloading binary files"
-	wget -q https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/initrd.tar.gz \
-	https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/kernel.tar.gz \
-	https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/modules.tar.gz
+	if ! [[ -f "initrd.tar.gz" && -f "kernel.tar.gz" && -f "modules.tar.gz" ]]; then
+		msg "downloading binary files"
+		wget -q https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/initrd.tar.gz \
+		https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/kernel.tar.gz \
+		https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/modules.tar.gz
+	fi
+
 	if [[ -f initrd.tar.gz && -f kernel.tar.gz && -f modules.tar.gz ]]; then
-		msg "All files downloaded successfully."
+		msg "All binary files present."
 	else
 		msg "Files missing." && exit 1
 	fi
