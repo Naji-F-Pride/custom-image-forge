@@ -57,11 +57,23 @@ get_ubuntu_base() {
 }
 
 get_bins() {
+	version=$1
+	plan=$2
+
+	case $version in
+	'14.04') versionSlug=14_04 ;;
+	'16.04') versionSlug=16_04 ;;
+	'17.10') versionSlug=17_04 ;;
+	'18.04') versionSlug=18_04 ;;
+	'19.04') versionSlug=19_04 ;;
+	*) echo -e "$version not supported.\nsupported versions are:\n$(supt_ver)" && exit 1 ;;
+	esac
+
 	if ! [[ -f "initrd.tar.gz" && -f "kernel.tar.gz" && -f "modules.tar.gz" ]]; then
 		msg "downloading binary files"
-		wget -q https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/initrd.tar.gz \
-		https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/kernel.tar.gz \
-		https://github.com/packethost/packet-images/raw/ubuntu_16_04-c1.small.x86/modules.tar.gz
+		wget -q https://github.com/packethost/packet-images/raw/ubuntu_$versionSlug-$plan/initrd.tar.gz \
+		https://github.com/packethost/packet-images/raw/ubuntu_$versionSlug-$plan/kernel.tar.gz \
+		https://github.com/packethost/packet-images/raw/ubuntu_$versionSlug-$plan/modules.tar.gz
 	fi
 
 	if [[ -f initrd.tar.gz && -f kernel.tar.gz && -f modules.tar.gz ]]; then
@@ -123,16 +135,40 @@ if ! [[ "$@" =~ "-v" ]] || ! [[ "$@" =~ "-a" ]]; then
 	usage && exit 1
 fi
 
-while getopts "v:a:o:Vh" OPTION; do
+while getopts "a:o:p:v:Vh" OPTION; do
         case $OPTION in
-        v) version=${OPTARG} ;;
         a) arch=${OPTARG} ;;
         o) outdir=${OPTARG} ;;
+	p) plan=${OPTARG} ;;
+        v) version=${OPTARG} ;;
         V) msg() { echo $@ >&2; } ;;
         h) usage && exit 0 ;;
         \?) usage && exit 1 ;;
         esac
 done
+
+plans=$(cat << EOF
+c2.large.arm
+c2.medium.x86
+g2.large.x86
+m2.xlarge.x86
+n2.xlarge.x86
+x2.xlarge.x86
+c1.large.arm
+c1.small.x86
+c1.xlarge.x86
+m1.xlarge.x86
+s1.large.x86
+t1.small.x86
+x1.small.x86
+EOF
+)
+
+if [[ $plans =~ $plan ]]; then
+	echo "plan supported"
+else
+	echo 'Plan not supported' && exit 1
+fi
 
 case $arch in
 'aarch64') arch=arm64 ;;
@@ -159,7 +195,8 @@ done
 get_ubuntu_base $fullversion $arch
 
 msg "Fetching binary files."
-get_bins
+
+get_bins $version $plan
 
 image_builder $version $outdir
 
