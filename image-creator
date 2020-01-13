@@ -36,10 +36,10 @@ get_ubuntu_base() {
 	path="http://cdimage.ubuntu.com/ubuntu-base/releases/$1/release"
 	file=ubuntu-base-$1-base-$2.tar.gz
 
-	msg "Fetching keys"
-	gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
-		843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
-		C5986B4F1257FFA86632CBA746181433FBB75451
+#	msg "Fetching keys"
+#	gpg --keyserver hkp://ha.pool.sks-keyservers.net --recv-keys \
+#		843938DF228D22F7B3742BC0D94AA3F0EFE21092 \
+#		C5986B4F1257FFA86632CBA746181433FBB75451
 
 	wget -qN "$path/$file" "$path/SHA256SUMS" "$path/SHA256SUMS.gpg"
 
@@ -68,6 +68,8 @@ get_bins() {
 	'19.04') versionSlug=19_04 ;;
 	*) echo -e "$version not supported.\nsupported versions are:\n$(supt_ver)" && exit 1 ;;
 	esac
+
+	echo $versionSlug $plan
 
 	if ! [[ -f "initrd.tar.gz" && -f "kernel.tar.gz" && -f "modules.tar.gz" ]]; then
 		msg "downloading binary files"
