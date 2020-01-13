@@ -5,15 +5,18 @@ MAINTAINER David Laube <dlaube@packet.net>
 LABEL name="Ubuntu Canonical Base Image" \
     vendor="Ubuntu" \
     license="GPLv2" \
-    build-date="20180826"
+    build-date="20181217"
 
 # Setup the environment
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Unminimize system
+RUN yes | unminimize
+
 # Install packages
 RUN apt-get -q update && \
     apt-get -y -qq upgrade && \
-    apt-get install -y -qq \
+    apt-get -y -qq install \
 		apt-transport-https \
 		bash \
 		bash-completion \
@@ -46,7 +49,7 @@ RUN apt-get -q update && \
 		mdadm \
 		mg \
 		mosh \
-		mtr \
+		mtr-tiny \
 		multipath-tools \
 		nano \
 		net-tools \
@@ -73,19 +76,14 @@ RUN apt-get -q update && \
 		unattended-upgrades \
 		uuid-runtime \
 		vim \
-		wget \
-	&& apt-get clean \
-	&& rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*
+		wget
 
-# Install a specific kernel and deps
+# Install a specific kernel
 RUN apt-get -q update && \
 	apt-get -y -qq upgrade && \
-	apt-get install -y -qq \
-	efibootmgr \
-	grub-efi \
-	linux-firmware \
-	linux-image-4.15.0-50-generic \
-	linux-modules-extra-4.15.0-50-generic
+	apt-get -y -qq install \
+	linux-image-4.15.0-33-generic \
+	linux-modules-extra-4.15.0-33-generic
 
 # Configure locales
 RUN locale-gen en_US.UTF-8 && \
@@ -98,9 +96,10 @@ RUN chown root:syslog /var/log \
 # Fix cloud-init EC2 warning
 RUN touch /root/.cloud-warnings.skip
 
-# Removed proposed bleeding edge repo
-RUN rm -f /etc/apt/sources.list.d/proposed.list
+# Clean APT cache
+RUN apt-get clean \
+	&& rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*
 
 # vim: set tabstop=4 shiftwidth=4:
 
-RUN echo "hello from ubuntu 18.04" > /root/hello
+RUN echo "hello world" > /root/hello
